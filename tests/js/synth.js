@@ -95,10 +95,10 @@ function background(kind, rand, w, h) {
  */
 export function makeScene({
   width = 1200, height = 900, seed = 1, bg = 'wood', quad = null, shadow = true,
-  lightGrad = 0.25, noise = 4, paper = [242, 240, 232], photo = true, occlude = false,
+  lightGrad = 0.25, noise = 4, paper = [242, 240, 232], photo = true, occlude = false, physical = false,
 } = {}) {
   const rand = rng(seed);
-  const corners = quad || randomQuad(width, height, rand);
+  const corners = quad || (physical ? physicalQuad(width, height, rand) : randomQuad(width, height, rand));
   const H = solveHomography(corners, [[0, 0], [DW, 0], [DW, DH], [0, DH]]);
   const page = makePage(rand, { photo });
   const bgf = background(bg, rand, width, height);
@@ -139,6 +139,19 @@ export function makeScene({
     }
   }
   return { image: { width, height, data }, corners };
+}
+
+// A physically valid photo of an A4 sheet: random camera tilt/rotation, phone focal length.
+export function physicalQuad(w, h, rand) {
+  for (let attempt = 0; attempt < 200; attempt++) {
+    const f = Math.max(w, h) * (0.72 + rand() * 0.16);
+    const q = projectRectangle({
+      pw: 0.21, ph: 0.297, f, width: w, height: h,
+      rx: (rand() - 0.5) * 0.7, ry: (rand() - 0.5) * 0.7, rz: (rand() - 0.5) * 0.5, dist: 0.36 + rand() * 0.18,
+    });
+    if (q.every(([x, y]) => x > 12 && y > 12 && x < w - 12 && y < h - 12)) return q;
+  }
+  return randomQuad(w, h, rand);
 }
 
 export function randomQuad(w, h, rand) {

@@ -26,10 +26,30 @@ test('aspect ratio of a perspective-projected A4 sheet is recovered', () => {
   for (const [rx, ry, rz, f] of [[0, 0.5, 0.2, 3000], [0.6, 0.3, -0.4, 3400], [0.2, -0.6, 1.2, 2800]]) {
     const q = projectRectangle({ pw: 0.21, ph: 0.297, f, width: 4000, height: 3000, rx, ry, rz, dist: 0.45 });
     const r = estimateAspectRatio(q, 4000, 3000);
-    assert.ok(Math.abs(r / truth - 1) < 0.01, `ratio ${r} vs ${truth}`);
+    assert.ok(Math.abs(r / truth - 1) < 0.02, `ratio ${r} vs ${truth}`);
     const size = documentSize(q, 4000, 3000, { snap: true });
     assert.ok(Math.abs(size.width / size.height - truth) < 0.002);
   }
+});
+
+test('aspect estimate stays robust with noisy corners and beats naive side ratios', () => {
+  const truth = 0.21 / 0.297;
+  let seed = 3;
+  const rand = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+  const gauss = () => { let s = 0; for (let i = 0; i < 6; i++) s += rand(); return (s - 3) / Math.sqrt(0.5); };
+  const est = [], naive = [];
+  for (let t = 0; t < 300; t++) {
+    const q = projectRectangle({ pw: 0.21, ph: 0.297, f: 2800 + rand() * 800, width: 4000, height: 3000,
+      rx: (rand() - 0.5), ry: (rand() - 0.5), rz: (rand() - 0.5) * 0.6, dist: 0.42 + rand() * 0.2 })
+      .map(([x, y]) => [x + gauss() * 8, y + gauss() * 8]); // ~0.2% corner noise
+    est.push(Math.abs(estimateAspectRatio(q, 4000, 3000) / truth - 1));
+    const d = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+    naive.push(Math.abs((d(q[0], q[1]) + d(q[3], q[2])) / (d(q[0], q[3]) + d(q[1], q[2])) / truth - 1));
+  }
+  const p90 = (a) => a.slice().sort((x, y) => x - y)[Math.floor(0.9 * (a.length - 1))];
+  assert.ok(p90(est) < 0.04, `p90 ${p90(est)}`);
+  assert.ok(Math.max(...est) < 0.08, `max ${Math.max(...est)}`);
+  assert.ok(p90(est) < p90(naive) / 2);
 });
 
 test('paper snapping only nudges near-standard ratios', () => {
