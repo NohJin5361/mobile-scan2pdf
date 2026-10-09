@@ -1,0 +1,9 @@
+fastapi>=0.110
+uvicorn[standard]>=0.27
+sqlalchemy>=2.0
+pillow>=10.0
+python-multipart>=0.0.9
+# Optional
+# boto3>=1.34        # SCAN2PDF_STORAGE=s3
+# psycopg[binary]    # PostgreSQL database URL
+# pymysql            # MySQL/MariaDB database URL
