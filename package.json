@@ -1,0 +1,9 @@
+{
+  "name": "mobile-scan2pdf",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/js/*.test.js",
+    "bench": "node tools/bench-detect.mjs 60"
+  }
+}

@@ -1,0 +1,13 @@
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+server/data/
+data/
+*.db
+*.sqlite3
+certs/
+test-results/
+.DS_Store
