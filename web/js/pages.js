@@ -11,6 +11,7 @@ export const DEFAULT_ADJUST = { brightness: 0, contrast: 0 };
 // ------------------------------------------------------------------ decoded originals
 
 const decoded = new Map(); // originalId -> Promise<loaded image>
+const DECODED_MAX = 2;      // full-size photos are big: keep phones well within memory
 
 /** Decoded original for a page (small LRU so editors reopen instantly). */
 export function loadOriginal(page) {
@@ -28,7 +29,7 @@ export function loadOriginal(page) {
   })();
   decoded.set(key, p);
   p.catch(() => decoded.delete(key));
-  while (decoded.size > 3) {
+  while (decoded.size > DECODED_MAX) {
     const [k, old] = decoded.entries().next().value;
     decoded.delete(k);
     old.then((img) => img.close()).catch(() => {});
@@ -38,7 +39,7 @@ export function loadOriginal(page) {
 
 function rememberDecoded(originalId, loaded) {
   decoded.set(originalId, Promise.resolve(loaded));
-  while (decoded.size > 3) {
+  while (decoded.size > DECODED_MAX) {
     const [k, old] = decoded.entries().next().value;
     decoded.delete(k);
     old.then((img) => img.close()).catch(() => {});

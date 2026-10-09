@@ -1,0 +1,12 @@
+services:
+  scan2pdf:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/data            # SQLite DB + scanned files
+    environment:
+      SCAN2PDF_TOKEN: "change-me" # access token entered once in the app settings
+      # SCAN2PDF_DATABASE_URL: postgresql+psycopg://user:pass@db/scan2pdf
+      # SCAN2PDF_STORAGE: db      # keep files inside the database as well

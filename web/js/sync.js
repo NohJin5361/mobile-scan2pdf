@@ -48,6 +48,7 @@ async function pushDoc(docId) {
   try {
     const remote = await api.putDoc(doc.id, { title: doc.title, created_at: new Date(doc.createdAt).toISOString() });
     const byId = new Map(remote.pages.map((p) => [p.id, p]));
+    const onServer = new Set(byId.keys());
     const pages = await store.getPages(doc);
     const todo = pages.filter((p) => {
       const r = byId.get(p.id);
@@ -74,6 +75,7 @@ async function pushDoc(docId) {
         src_height: page.srcHeight,
         detected: !!page.detected,
       }, files);
+      onServer.add(page.id);
       progress(docId, ++done, todo.length);
     }
     const current = await store.getDoc(docId);
@@ -81,7 +83,7 @@ async function pushDoc(docId) {
     const deleted = current.deletedPageIds || [];
     const merged = await api.patchDoc(doc.id, {
       title: current.title,
-      page_order: current.pageIds.filter((id) => pages.some((p) => p.id === id)),
+      page_order: current.pageIds.filter((id) => onServer.has(id)),
       delete_pages: deleted,
     });
     if (deleted.length) {

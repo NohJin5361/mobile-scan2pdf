@@ -849,3 +849,5 @@ button.bar-title {
   .content { padding-left: max(24px, calc((100% - 960px) / 2)); padding-right: max(24px, calc((100% - 960px) / 2)); }
   .page-grid { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
 }
+
+.sheet .toggle-row { margin-bottom: 8px; }
