@@ -1,11 +1,11 @@
 // A document stored on the server: preview, download PDF/ZIP, import for editing, delete.
-import { h, icon, iconButton, toast, sheet, segmented, confirmDialog, promptDialog, busy, revokeAll, objectUrl, actionSheet } from '../ui.js';
+import { h, icon, iconButton, toast, sheet, segmented, toggle, confirmDialog, promptDialog, busy, revokeAll, objectUrl, actionSheet } from '../ui.js';
 import * as store from '../store.js';
-import { api, checkServer } from '../api.js';
+import { api, checkServer, ocrReady } from '../api.js';
 import { pullDoc } from '../sync.js';
 import { downloadBlob, canShareFiles, shareFiles, QUALITY } from '../exporter.js';
 import { PAGE_SIZES } from '../core/pdf.js';
-import { field, openViewer } from './common.js';
+import { field, openViewer, extractText } from './common.js';
 import { getSettings, updateSettings } from '../settings.js';
 import { formatBytes, formatDate, safeFilename } from '../util.js';
 
@@ -85,18 +85,22 @@ export default async function cloudView({ params: [docId], navigate, goBack }) {
   function exportPdf() {
     const s = getSettings();
     const opts = { page_size: s.pdfPageSize, margin: s.pdfMarginMm, quality: s.pdfQuality };
-    sheet('PDF 다운로드', (close) => h('div', {},
+    let useOcr = false;
+    const layout = h('div', {},
       field('용지 크기', segmented([{ value: 'auto', label: '자동' }, ...['a4', 'letter', 'legal', 'a5', 'b5'].map((k) => ({ value: k, label: PAGE_SIZES[k].label }))], opts.page_size, (v) => { opts.page_size = v; })),
-      field('여백', segmented([{ value: 0, label: '없음' }, { value: 5, label: '좁게' }, { value: 12, label: '보통' }], opts.margin, (v) => { opts.margin = v; })),
+      field('여백', segmented([{ value: 0, label: '없음' }, { value: 5, label: '좁게' }, { value: 12, label: '보통' }], opts.margin, (v) => { opts.margin = v; })));
+    sheet('PDF 다운로드', (close) => h('div', {},
+      ocrReady() ? toggle('검색 가능한 PDF (OCR)', false, (v) => { useOcr = v; layout.style.display = v ? 'none' : ''; }, '글자를 인식해 PDF 안에서 검색·복사할 수 있게 합니다') : null,
+      layout,
       field('화질', segmented(Object.entries(QUALITY).map(([value, q]) => ({ value, label: q.label })), opts.quality, (v) => { opts.quality = v; })),
       h('div', { class: 'sheet-actions' },
         h('button', { type: 'button', class: 'btn', onclick: () => close() }, '취소'),
         h('button', { type: 'button', class: 'btn primary', onclick: async () => {
           close();
           updateSettings({ pdfPageSize: opts.page_size, pdfMarginMm: opts.margin, pdfQuality: opts.quality });
-          const b = busy('서버에서 PDF를 만드는 중…');
+          const b = busy(useOcr ? '글자를 인식하는 중… (페이지당 몇 초)' : '서버에서 PDF를 만드는 중…');
           try {
-            const blob = await api.exportPdf(docId, opts);
+            const blob = await api.exportPdf(docId, useOcr ? { ocr: 1, quality: opts.quality } : opts);
             b.done();
             await deliver(blob, safeFilename(remote.title, 'pdf'), 'application/pdf');
           } catch (e) {
@@ -156,6 +160,7 @@ export default async function cloudView({ params: [docId], navigate, goBack }) {
 
   async function more() {
     const choice = await actionSheet(remote.title, [
+      ocrReady() ? { label: '텍스트 추출 (OCR)', icon: 'search', value: 'ocr' } : null,
       { label: '이름 변경', icon: 'edit', value: 'rename' },
       { label: '삭제', icon: 'trash', value: 'delete', danger: true },
     ]);
@@ -169,6 +174,8 @@ export default async function cloudView({ params: [docId], navigate, goBack }) {
       } catch (e) {
         toast(e.message, { error: true });
       }
+    } else if (choice === 'ocr') {
+      extractText(remote, { local: false });
     } else if (choice === 'delete') remove();
   }
 

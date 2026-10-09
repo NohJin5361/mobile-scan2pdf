@@ -40,8 +40,12 @@ def test_document_lifecycle(client):
     assert detail["cover"]["page_id"] == "p1"
     assert detail["size"] > 0
 
-    # Reorder and drop p2 in one call.
-    r = client.patch("/api/documents/doc-1", json={"page_order": ["p3", "p1"], "title": "새 제목"})
+    # Pages missing from page_order are kept (after the listed ones), never dropped.
+    r = client.patch("/api/documents/doc-1", json={"page_order": ["p3", "p1"]})
+    assert [p["id"] for p in r.json()["pages"]] == ["p3", "p1", "p2"]
+
+    # Reorder and explicitly delete p2 in one call.
+    r = client.patch("/api/documents/doc-1", json={"page_order": ["p3", "p1"], "delete_pages": ["p2"], "title": "새 제목"})
     assert r.status_code == 200, r.text
     assert [p["id"] for p in r.json()["pages"]] == ["p3", "p1"]
     assert r.json()["title"] == "새 제목"

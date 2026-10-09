@@ -1,9 +1,9 @@
 // Shared view helpers: file picking/import, sync badges, export sheet.
-import { h, icon, busy, toast, sheet, segmented } from '../ui.js';
+import { h, icon, busy, toast, sheet, segmented, toggle } from '../ui.js';
 import * as store from '../store.js';
 import { addPageFromBlob } from '../pages.js';
-import { syncProgress } from '../sync.js';
-import { cloudReady } from '../api.js';
+import { syncProgress, syncDoc } from '../sync.js';
+import { api, cloudReady, ocrReady } from '../api.js';
 import { getSettings, updateSettings } from '../settings.js';
 import { PAGE_SIZES } from '../core/pdf.js';
 import { QUALITY, pdfBlob, jpgFiles, zipBlob, downloadBlob, canShareFiles, shareFiles } from '../exporter.js';
@@ -88,6 +88,7 @@ export function openExportSheet(doc, pages, { format = 'pdf' } = {}) {
     marginMm: s.pdfMarginMm,
     quality: s.pdfQuality,
     name: doc.title,
+    ocr: false,
   };
   return sheet('내보내기', (close) => {
     const body = h('div');
@@ -98,8 +99,12 @@ export function openExportSheet(doc, pages, { format = 'pdf' } = {}) {
         ...['a4', 'letter', 'legal', 'a5', 'b5'].map((k) => ({ value: k, label: PAGE_SIZES[k].label })),
       ], opts.pageSize, (v) => { opts.pageSize = v; }, { name: '용지 크기' })),
       field('여백', segmented(MARGINS, opts.marginMm, (v) => { opts.marginMm = v; }, { name: '여백' })));
+    const ocrToggle = ocrReady()
+      ? toggle('검색 가능한 PDF (OCR)', false, (v) => { opts.ocr = v; render(); }, '글자를 인식해 PDF 안에서 검색·복사할 수 있게 합니다 (서버 처리)')
+      : null;
     const render = () => {
-      pdfOptions.style.display = opts.format === 'pdf' ? '' : 'none';
+      pdfOptions.style.display = opts.format === 'pdf' && !opts.ocr ? '' : 'none';
+      if (ocrToggle) ocrToggle.style.display = opts.format === 'pdf' ? '' : 'none';
       shareBtn.style.display = typeof navigator.share === 'function' ? '' : 'none';
     };
     const run = async (mode) => {
@@ -109,7 +114,13 @@ export function openExportSheet(doc, pages, { format = 'pdf' } = {}) {
       try {
         const progress = (i, n) => b.update(`파일을 만드는 중… ${i + 1}/${n}`);
         let files;
-        if (opts.format === 'pdf') {
+        if (opts.format === 'pdf' && opts.ocr) {
+          b.update('클라우드에 올리는 중…');
+          await syncDoc(doc.id);
+          b.update('글자를 인식하는 중… (페이지당 몇 초)');
+          const blob = await api.exportPdf(doc.id, { ocr: 1, quality: opts.quality, pages: pages.map((p) => p.id).join(',') });
+          files = [new File([blob], safeFilename(name, 'pdf'), { type: 'application/pdf' })];
+        } else if (opts.format === 'pdf') {
           const blob = await pdfBlob({ ...doc, title: name }, pages, opts, progress);
           files = [new File([blob], safeFilename(name, 'pdf'), { type: 'application/pdf' })];
         } else {
@@ -153,6 +164,7 @@ export function openExportSheet(doc, pages, { format = 'pdf' } = {}) {
         { value: 'jpg', label: pages.length > 1 ? `JPG (${pages.length}장)` : 'JPG' },
       ], opts.format, (v) => { opts.format = v; render(); }, { name: '형식' })),
       field('파일 이름', nameInput),
+      ocrToggle,
       pdfOptions,
       field('화질', segmented(Object.entries(QUALITY).map(([value, q]) => ({ value, label: q.label })), opts.quality, (v) => { opts.quality = v; }, { name: '화질' })),
       h('p', { class: 'hint', style: { textAlign: 'left', margin: '0 2px' } }, '원본: 스캔 화질 그대로 · 저용량: 이메일/메신저 전송용'),
@@ -162,6 +174,49 @@ export function openExportSheet(doc, pages, { format = 'pdf' } = {}) {
     );
     render();
     return body;
+  });
+}
+
+/** Runs OCR for a document on the server (uploading local changes first) and shows the text. */
+export async function extractText(doc, { local = true } = {}) {
+  const b = busy(local ? '클라우드에 올리는 중…' : '글자를 인식하는 중…');
+  let res;
+  try {
+    if (local) {
+      await syncDoc(doc.id);
+      b.update('글자를 인식하는 중… (페이지당 몇 초)');
+    }
+    res = await api.text(doc.id);
+  } catch (e) {
+    toast(`글자 인식 실패: ${e.message}`, { error: true });
+    return;
+  } finally {
+    b.done();
+  }
+  openTextSheet(doc.title, res.text);
+}
+
+export function openTextSheet(title, text) {
+  return sheet('인식된 텍스트', (close) => {
+    const area = h('textarea', { class: 'input', readonly: true, style: { height: '46vh', padding: '10px 12px', lineHeight: '1.5', resize: 'none' } });
+    area.value = text || '';
+    return h('div', {},
+      text ? area : h('p', { class: 'dialog-msg' }, '인식된 글자가 없습니다.'),
+      h('div', { class: 'sheet-actions' },
+        h('button', { type: 'button', class: 'btn', onclick: () => {
+          downloadBlob(new Blob([text], { type: 'text/plain;charset=utf-8' }), safeFilename(title, 'txt'));
+        } }, icon('download'), 'TXT 저장'),
+        h('button', { type: 'button', class: 'btn primary', onclick: async () => {
+          try {
+            await navigator.clipboard.writeText(text);
+            toast('복사했습니다');
+          } catch {
+            area.select();
+            document.execCommand?.('copy');
+            toast('복사했습니다');
+          }
+          close();
+        } }, icon('copy'), '복사')));
   });
 }
 

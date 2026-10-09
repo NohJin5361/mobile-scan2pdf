@@ -4,7 +4,11 @@
   "type": "module",
   "scripts": {
     "test": "node --test tests/js/*.test.js",
-    "bench": "node tools/bench-detect.mjs 60"
+    "test:e2e": "node --test --test-concurrency=1 tests/e2e/*.e2e.mjs",
+    "test:server": "cd server && python3 -m pytest -q",
+    "lint": "eslint .",
+    "bench": "node tools/bench-detect.mjs 60",
+    "icons": "node tools/make-icons.mjs"
   },
   "devDependencies": {
     "playwright": "^1.56.1"

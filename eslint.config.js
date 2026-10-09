@@ -4,7 +4,7 @@ const browser = Object.fromEntries([
   'Blob', 'File', 'FormData', 'Image', 'ImageData', 'TextEncoder', 'TextDecoder', 'AbortController', 'DataView', 'crypto',
   'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'requestAnimationFrame', 'cancelAnimationFrame', 'console',
   'Worker', 'self', 'caches', 'createImageBitmap', 'ResizeObserver', 'MutationObserver', 'Node', 'HTMLElement', 'performance',
-  'devicePixelRatio', 'globalThis', 'structuredClone', 'queueMicrotask', 'getComputedStyle', 'matchMedia', 'alert',
+  'devicePixelRatio', 'globalThis', 'structuredClone', 'queueMicrotask', 'getComputedStyle', 'matchMedia', 'alert', 'atob', 'btoa',
 ].map((k) => [k, 'readonly']));
 const node = Object.fromEntries(['process', 'Buffer', '__dirname'].map((k) => [k, 'readonly']));
 

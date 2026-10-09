@@ -68,11 +68,12 @@ export const api = {
   pageImage: (docId, pageId, variant = 'thumb') => request(`documents/${enc(docId)}/pages/${enc(pageId)}/${variant}`, { responseType: 'blob' }),
   exportPdf: (docId, params = {}) => request(`documents/${enc(docId)}/export.pdf?${new URLSearchParams(params)}`, { responseType: 'blob', timeout: 300000 }),
   exportZip: (docId, params = {}) => request(`documents/${enc(docId)}/export.zip?${new URLSearchParams(params)}`, { responseType: 'blob', timeout: 300000 }),
+  text: (docId, params = {}) => request(`documents/${enc(docId)}/text?${new URLSearchParams(params)}`, { timeout: 600000 }),
 };
 
 // ------------------------------------------------------------------ server status
 
-let status = { checked: false, reachable: false, authOk: false, authRequired: false, error: '' };
+let status = { checked: false, reachable: false, authOk: false, authRequired: false, error: '', ocr: null };
 let checking = null;
 const listeners = new Set();
 
@@ -91,7 +92,7 @@ export function checkServer({ force = false } = {}) {
     let next;
     try {
       const h = await api.health();
-      next = { checked: true, reachable: true, authRequired: !!h.auth_required, authOk: true, error: '' };
+      next = { checked: true, reachable: true, authRequired: !!h.auth_required, authOk: true, error: '', ocr: h.ocr || null };
       if (h.auth_required) {
         try {
           await api.authCheck();
@@ -100,7 +101,7 @@ export function checkServer({ force = false } = {}) {
         }
       }
     } catch (e) {
-      next = { checked: true, reachable: false, authOk: false, authRequired: false, error: e.message };
+      next = { checked: true, reachable: false, authOk: false, authRequired: false, error: e.message, ocr: null };
     }
     status = next;
     for (const fn of listeners) fn(status);
@@ -112,3 +113,4 @@ export function checkServer({ force = false } = {}) {
 }
 
 export const cloudReady = () => status.reachable && status.authOk;
+export const ocrReady = () => cloudReady() && !!status.ocr?.available;

@@ -1,10 +1,10 @@
 // Document: page grid with drag-to-reorder, add pages, export, cloud sync.
 import { h, icon, iconButton, toast, actionSheet, confirmDialog, promptDialog, revokeAll, objectUrl, withBusy } from '../ui.js';
 import * as store from '../store.js';
-import { api, cloudReady, checkServer } from '../api.js';
+import { api, cloudReady, checkServer, ocrReady } from '../api.js';
 import { syncDoc, onSyncProgress, syncProgress } from '../sync.js';
 import { pendingRenders } from '../pages.js';
-import { pickFiles, importImages, syncBadge, openExportSheet } from './common.js';
+import { pickFiles, importImages, syncBadge, openExportSheet, extractText } from './common.js';
 import { pdfBlob } from '../exporter.js';
 import { debounce } from '../util.js';
 
@@ -122,12 +122,14 @@ export default async function docView({ params: [docId], navigate, goBack }) {
     const choice = await actionSheet(doc.title, [
       { label: '이름 변경', icon: 'edit', value: 'rename' },
       { label: 'PDF 미리보기', icon: 'file', value: 'preview' },
+      ocrReady() ? { label: '텍스트 추출 (OCR)', icon: 'search', value: 'ocr' } : null,
       { label: '지금 클라우드에 저장', icon: 'cloudUp', value: 'sync' },
       { label: '문서 삭제', icon: 'trash', value: 'delete', danger: true },
     ]);
     if (choice === 'rename') rename();
     else if (choice === 'sync') syncNow();
     else if (choice === 'preview') previewPdf();
+    else if (choice === 'ocr') extractText(doc);
     else if (choice === 'delete') removeDoc();
   }
 

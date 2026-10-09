@@ -78,9 +78,26 @@ async function pushDoc(docId) {
     }
     const current = await store.getDoc(docId);
     if (!current) return;
-    await api.patchDoc(doc.id, { title: current.title, page_order: current.pageIds.filter((id) => pages.some((p) => p.id === id)) });
-    if (current.updatedAt !== stamp) {
-      again.add(docId); // edited while uploading: run once more
+    const deleted = current.deletedPageIds || [];
+    const merged = await api.patchDoc(doc.id, {
+      title: current.title,
+      page_order: current.pageIds.filter((id) => pages.some((p) => p.id === id)),
+      delete_pages: deleted,
+    });
+    if (deleted.length) {
+      const latest = await store.getDoc(docId);
+      await store.updateDoc(docId, { deletedPageIds: (latest.deletedPageIds || []).filter((id) => !deleted.includes(id)) }, { dirty: false });
+    }
+    // Pages added to this document from another device: bring them here as well.
+    const known = new Set([...current.pageIds, ...deleted]);
+    const extra = merged.pages.map((rp, i) => [rp, i]).filter(([rp]) => !known.has(rp.id));
+    for (const [rp, position] of extra) {
+      const { page, blobs } = await downloadPage(docId, rp);
+      await store.savePage(page, blobs, { position });
+    }
+    const latest = await store.getDoc(docId);
+    if (extra.length || latest.updatedAt !== stamp) {
+      again.add(docId); // changed while uploading (or merged): run once more
       return;
     }
     await store.setSyncState(docId, { state: 'synced', syncedAt: Date.now() });
@@ -90,39 +107,47 @@ async function pushDoc(docId) {
   }
 }
 
-/** Downloads a server document into local storage (replacing any local copy). */
+async function downloadPage(docId, rp) {
+  const processed = await api.pageImage(docId, rp.id, 'processed');
+  const thumb = await api.pageImage(docId, rp.id, 'thumb');
+  const original = rp.has_original ? await api.pageImage(docId, rp.id, 'original') : processed;
+  const m = rp.meta || {};
+  const editable = rp.has_original;
+  const page = {
+    id: rp.id,
+    docId,
+    version: rp.version,
+    processedVersion: rp.version,
+    originalId: rp.original_id || rp.id,
+    corners: editable && Array.isArray(m.corners) && m.corners.length === 4 ? m.corners : FULL_QUAD,
+    detected: !!m.detected,
+    rotation: editable ? m.rotation || 0 : 0,
+    filter: editable ? m.filter || 'auto' : 'original',
+    adjust: editable ? { ...DEFAULT_ADJUST, ...(m.adjust || {}) } : { ...DEFAULT_ADJUST },
+    srcWidth: m.src_width || rp.width,
+    srcHeight: m.src_height || rp.height,
+    width: rp.width,
+    height: rp.height,
+    createdAt: Date.now(),
+  };
+  return { page, blobs: { original, processed, thumb } };
+}
+
+/**
+ * Downloads a server document into local storage, replacing any local copy. Everything
+ * is fetched first, so an interrupted download leaves the local copy untouched.
+ */
 export async function pullDoc(id, onProgress = () => {}) {
   const remote = await api.getDoc(id);
+  const items = [];
+  for (const rp of remote.pages) {
+    onProgress(items.length, remote.pages.length);
+    items.push(await downloadPage(id, rp));
+  }
+  onProgress(items.length, remote.pages.length);
   await store.deleteDoc(id).catch(() => {});
   await store.createDoc({ id, title: remote.title, createdAt: Date.parse(remote.created_at) || Date.now() });
-  let i = 0;
-  for (const rp of remote.pages) {
-    onProgress(i, remote.pages.length);
-    const processed = await api.pageImage(id, rp.id, 'processed');
-    const thumb = await api.pageImage(id, rp.id, 'thumb');
-    const original = rp.has_original ? await api.pageImage(id, rp.id, 'original') : processed;
-    const m = rp.meta || {};
-    const page = {
-      id: rp.id,
-      docId: id,
-      version: rp.version,
-      processedVersion: rp.version,
-      originalId: rp.original_id || rp.id,
-      corners: rp.has_original && Array.isArray(m.corners) && m.corners.length === 4 ? m.corners : FULL_QUAD,
-      detected: !!m.detected,
-      rotation: rp.has_original ? m.rotation || 0 : 0,
-      filter: rp.has_original ? m.filter || 'auto' : 'original',
-      adjust: rp.has_original ? { ...DEFAULT_ADJUST, ...(m.adjust || {}) } : { ...DEFAULT_ADJUST },
-      srcWidth: m.src_width || rp.width,
-      srcHeight: m.src_height || rp.height,
-      width: rp.width,
-      height: rp.height,
-      createdAt: Date.now(),
-    };
-    await store.savePage(page, { original, processed, thumb });
-    i++;
-  }
-  onProgress(i, remote.pages.length);
+  for (const { page, blobs } of items) await store.savePage(page, blobs);
   await store.setSyncState(id, { state: 'synced', syncedAt: Date.now() });
   return store.getDoc(id);
 }

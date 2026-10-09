@@ -1,6 +1,6 @@
 // Local document store (IndexedDB).
 //
-// docs:  { id, title, createdAt, updatedAt, pageIds[], sync: { state, syncedAt, error } }
+// docs:  { id, title, createdAt, updatedAt, pageIds[], deletedPageIds[], sync: { state, syncedAt, error } }
 //        sync.state: 'local' (never uploaded) | 'synced' | 'dirty' | 'error'
 // pages: { id, docId, version, processedVersion, originalId, corners (0..1, TL TR BR BL),
 //          rotation, filter, adjust, srcWidth, srcHeight, width, height, createdAt, updatedAt }
@@ -165,6 +165,8 @@ export async function deletePage(docId, pageId) {
     const doc = await req(docs.get(docId));
     if (doc) {
       doc.pageIds = doc.pageIds.filter((id) => id !== pageId);
+      // Remember the deletion so the next upload removes the page on the server too.
+      doc.deletedPageIds = [...new Set([...(doc.deletedPageIds || []), pageId])];
       markDirty(doc);
       await req(docs.put(doc));
     }

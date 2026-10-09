@@ -19,7 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from . import __version__
+from . import __version__, ocr
 from .config import Settings
 from .db import Document, Page, utcnow
 from .images import InvalidImage, inspect, thumbnail, to_jpeg
@@ -53,7 +53,11 @@ class DocumentIn(BaseModel):
 
 class DocumentPatch(BaseModel):
     title: str | None = Field(None, max_length=300)
+    # Pages listed here come first, in this order; pages not listed keep their
+    # relative order after them (a client never drops pages it does not know about).
     page_order: list[str] | None = None
+    # Pages to delete explicitly.
+    delete_pages: list[str] | None = None
 
 
 class PageMeta(BaseModel):
@@ -162,7 +166,14 @@ def create_router(services: Services) -> APIRouter:
 
     @public.get("/health")
     def health():
-        return {"ok": True, "version": __version__, "auth_required": bool(settings.token), "storage": storage.name}
+        langs = ocr.languages()
+        return {
+            "ok": True,
+            "version": __version__,
+            "auth_required": bool(settings.token),
+            "storage": storage.name,
+            "ocr": {"available": bool(langs), "languages": langs, "default": ocr.default_language() if langs else None},
+        }
 
     @router.get("/auth/check")
     def auth_check():
@@ -181,9 +192,7 @@ def create_router(services: Services) -> APIRouter:
         return page
 
     def delete_page_blobs(page: Page) -> None:
-        for key in (page.processed_key, page.original_key, page.thumb_key):
-            if key:
-                storage.delete(key)
+        storage.delete_prefix(f"docs/{page.document_id}/{page.id}/")
 
     def read_upload(upload: UploadFile | None, what: str) -> bytes | None:
         if upload is None:
@@ -237,17 +246,20 @@ def create_router(services: Services) -> APIRouter:
         removed: list[Page] = []
         if body.title is not None:
             doc.title = body.title
-        if body.page_order is not None:
-            order = [check_id(pid, "page id") for pid in body.page_order]
+        if body.page_order is not None or body.delete_pages:
+            order = [check_id(pid, "page id") for pid in (body.page_order or [])]
             if len(set(order)) != len(order):
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, "duplicate page id in page_order")
             by_id = {p.id: p for p in doc.pages}
             missing = [pid for pid in order if pid not in by_id]
             if missing:
                 raise HTTPException(status.HTTP_409_CONFLICT, {"message": "unknown pages", "missing": missing})
-            for pos, pid in enumerate(order):
-                by_id[pid].position = pos
-            removed = [p for p in doc.pages if p.id not in set(order)]
+            drop = {check_id(pid, "page id") for pid in (body.delete_pages or [])} - set(order)
+            listed = set(order)
+            rest = [p for p in doc.pages if p.id not in listed and p.id not in drop]
+            for pos, page in enumerate([by_id[pid] for pid in order] + rest):
+                page.position = pos
+            removed = [p for p in doc.pages if p.id in drop]
             for p in removed:
                 session.delete(p)
         doc.updated_at = utcnow()
@@ -411,6 +423,43 @@ def create_router(services: Services) -> APIRouter:
             data = to_jpeg(data, quality=q, max_dim=max_dim)[0]
         return data
 
+    def ocr_language(lang: str | None) -> str:
+        if not ocr.available():
+            raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "OCR is not installed on the server (install tesseract)")
+        try:
+            return ocr.check_language(lang)
+        except ocr.OcrError as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+    @router.get("/documents/{doc_id}/text")
+    def document_text(
+        doc_id: str,
+        lang: str | None = Query(None, max_length=104),
+        pages: str | None = None,
+        session: Session = Depends(get_session),
+    ):
+        lang = ocr_language(lang)
+        doc = load_doc(session, doc_id)
+        chosen = selected_pages(doc, pages)
+        results: dict[str, str] = {}
+        todo = []
+        for p in chosen:
+            key = f"docs/{doc_id}/{p.id}/ocr-{p.version}-{lang.replace('+', '_')}.txt"
+            try:
+                results[p.id] = storage.get(key).decode("utf-8")
+            except KeyError:
+                todo.append((p, key))
+        if todo:
+            try:
+                found = ocr.texts([page_jpeg(p, "original") for p, _ in todo], lang)
+            except ocr.OcrError as exc:
+                raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, str(exc)) from exc
+            for (p, key), text in zip(todo, found):
+                storage.put(key, text.encode("utf-8"), "text/plain; charset=utf-8")
+                results[p.id] = text
+        items = [{"id": p.id, "position": p.position, "text": results[p.id]} for p in chosen]
+        return {"lang": lang, "pages": items, "text": "\n\n".join(i["text"] for i in items if i["text"])}
+
     @router.get("/documents/{doc_id}/export.pdf")
     def export_pdf(
         doc_id: str,
@@ -419,12 +468,22 @@ def create_router(services: Services) -> APIRouter:
         margin: float = Query(0, ge=0, le=50),
         quality: str = Query("original", pattern="^(" + "|".join(QUALITY_PRESETS) + ")$"),
         pages: str | None = None,
+        ocr_text: bool = Query(False, alias="ocr"),
+        lang: str | None = Query(None, max_length=104),
         inline: bool = False,
         session: Session = Depends(get_session),
     ):
         doc = load_doc(session, doc_id)
+        language = ocr_language(lang) if ocr_text else None
         jpegs = [page_jpeg(p, quality) for p in selected_pages(doc, pages)]
-        pdf = build_pdf(jpegs, page_size=page_size, orientation=orientation, margin_mm=margin, title=doc.title)
+        if language:
+            # Searchable PDF: the text layer comes from Tesseract, pages use the auto size.
+            try:
+                pdf = ocr.searchable_pdf(jpegs, language, title=doc.title)
+            except ocr.OcrError as exc:
+                raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, str(exc)) from exc
+        else:
+            pdf = build_pdf(jpegs, page_size=page_size, orientation=orientation, margin_mm=margin, title=doc.title)
         return Response(
             content=pdf,
             media_type="application/pdf",
