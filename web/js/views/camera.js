@@ -6,6 +6,7 @@ import { addPageFromBlob, replaceOriginal } from '../pages.js';
 import { getSettings, updateSettings } from '../settings.js';
 import { canvasToBlob, releaseCanvas } from '../imageio.js';
 import { pickFiles, importImages } from './common.js';
+import { EMBEDDED } from '../util.js';
 
 const STABLE_FRAMES = 7;      // consecutive steady detections before auto-capture
 const STEADY_MOVE = 0.018;    // max corner movement (fraction of frame) to count as steady
@@ -149,6 +150,10 @@ export default async function cameraView({ query, navigate, goBack }) {
   }
 
   async function start() {
+    if (EMBEDDED) {
+      showFallback('휴대폰 카메라 앱으로 찍으면 문서 영역을 찾아 자동으로 보정합니다.');
+      return;
+    }
     if (!navigator.mediaDevices?.getUserMedia) {
       showFallback(window.isSecureContext
         ? '이 브라우저는 실시간 카메라를 지원하지 않습니다. 휴대폰 카메라 앱으로 촬영해도 똑같이 자동 보정됩니다.'
@@ -355,7 +360,7 @@ export default async function cameraView({ query, navigate, goBack }) {
     if (docId !== 'new') return docId;
     const doc = await store.createDoc();
     docId = doc.id;
-    history.replaceState(history.state, '', `#/camera?doc=${docId}`);
+    if (!EMBEDDED) history.replaceState(history.state, '', `#/camera?doc=${docId}`);
     return docId;
   }
 

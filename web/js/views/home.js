@@ -3,8 +3,8 @@ import { h, icon, iconButton, toast, actionSheet, confirmDialog, promptDialog, r
 import * as store from '../store.js';
 import { api, checkServer, serverStatus, onServerStatus, cloudReady } from '../api.js';
 import { onSyncProgress, syncDoc } from '../sync.js';
-import { pickFiles, importImages, syncBadge, openExportSheet } from './common.js';
-import { formatDate, formatBytes, debounce } from '../util.js';
+import { pickFiles, importImages, syncBadge, openExportSheet, captureWithCameraApp } from './common.js';
+import { formatDate, formatBytes, debounce, EMBEDDED } from '../util.js';
 
 let lastTab = 'local';
 
@@ -29,6 +29,12 @@ export default async function homeView({ navigate }) {
 
   async function loadCloud() {
     cloudError = '';
+    if (EMBEDDED) {
+      cloudDocs = null;
+      cloudError = '체험 페이지에서는 클라우드 저장이 꺼져 있습니다. 스캔한 문서는 이 휴대폰에 저장되고, PDF/JPG로 내보낼 수 있습니다.';
+      renderList();
+      return;
+    }
     const st = await checkServer();
     if (!st.reachable || !st.authOk) {
       cloudDocs = null;
@@ -84,7 +90,7 @@ export default async function homeView({ navigate }) {
     } else {
       if (cloudError || !cloudDocs) {
         show([h('div', { class: 'notice' }, cloudError || '불러오는 중…',
-          cloudError ? h('div', { style: { marginTop: '10px' } }, h('button', { type: 'button', class: 'btn small', onclick: () => navigate('/settings') }, icon('gear'), '서버 설정')) : null)], newUrls);
+          cloudError && !EMBEDDED ? h('div', { style: { marginTop: '10px' } }, h('button', { type: 'button', class: 'btn small', onclick: () => navigate('/settings') }, icon('gear'), '서버 설정')) : null)], newUrls);
         return;
       }
       const local = new Map(docs.map((d) => [d.id, d]));
@@ -171,6 +177,15 @@ export default async function homeView({ navigate }) {
     else navigate(`/doc/${res.doc.id}`);
   }
 
+  async function scan() {
+    if (!EMBEDDED) {
+      navigate('/camera?doc=new');
+      return;
+    }
+    const res = await captureWithCameraApp();
+    if (res) navigate(`/doc/${res.doc.id}/crop/${res.added[0].id}?next=page`);
+  }
+
   const offStore = store.onStoreChange(debounce(renderList, 120));
   const offSync = onSyncProgress(debounce(renderList, 200));
   const offServer = onServerStatus(() => renderList());
@@ -187,11 +202,11 @@ export default async function homeView({ navigate }) {
       list),
     h('div', { class: 'fab-row' },
       h('button', { type: 'button', class: 'fab secondary', onclick: importFromGallery }, icon('image'), '가져오기'),
-      h('button', { type: 'button', class: 'fab', onclick: () => navigate('/camera?doc=new') }, icon('camera'), '스캔')));
+      h('button', { type: 'button', class: 'fab', onclick: scan }, icon('camera'), '스캔')));
 
   await renderList();
   if (tab === 'cloud') loadCloud();
-  else if (!serverStatus().checked) checkServer();
+  else if (!serverStatus().checked && !EMBEDDED) checkServer();
 
   return {
     el,

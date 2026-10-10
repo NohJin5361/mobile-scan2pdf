@@ -6,7 +6,7 @@ import { syncAllPending } from '../sync.js';
 import * as store from '../store.js';
 import { FILTERS } from '../core/enhance.js';
 import { field } from './common.js';
-import { formatBytes } from '../util.js';
+import { formatBytes, EMBEDDED } from '../util.js';
 
 export default async function settingsView({ goBack }) {
   const s = getSettings();
@@ -48,7 +48,7 @@ export default async function settingsView({ goBack }) {
   const el = h('div', { class: 'view' },
     h('header', { class: 'bar' }, iconButton('back', '뒤로', () => goBack('/')), h('div', { class: 'bar-title' }, '설정')),
     h('main', { class: 'content', style: { paddingBottom: '32px' } },
-      h('section', { class: 'settings-group' },
+      EMBEDDED ? null : h('section', { class: 'settings-group' },
         h('h2', {}, '클라우드 서버'),
         field('서버 API 주소', apiInput),
         field('접속 토큰', h('div', { style: { display: 'flex', gap: '8px' } }, tokenInput, showToken)),
@@ -89,7 +89,7 @@ export default async function settingsView({ goBack }) {
   }
 
   showUsage();
-  checkServer().then((st) => {
+  if (!EMBEDDED) checkServer().then((st) => {
     statusLine.className = `status-line ${st.reachable && st.authOk ? 'ok' : 'err'}`;
     statusLine.replaceChildren(icon(st.reachable && st.authOk ? 'cloudOk' : 'cloudOff'), st.reachable && st.authOk ? `연결됨 · ${apiBaseUrl()}` : (st.error || '연결되지 않음'));
   });

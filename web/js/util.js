@@ -1,5 +1,9 @@
 // Small shared helpers.
 
+// Set by artifact.html when the app runs inside a claude.ai page (no live camera,
+// no server, saves go through the host's download prompt).
+export const EMBEDDED = typeof window !== 'undefined' && window.SCAN2PDF_EMBEDDED === true;
+
 // RFC 4122 v4 id. crypto.randomUUID needs a secure context, getRandomValues does not.
 export function uuid() {
   if (globalThis.crypto && crypto.randomUUID && globalThis.isSecureContext) return crypto.randomUUID();

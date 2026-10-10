@@ -29,6 +29,13 @@ export function pickFiles({ multiple = true, capture = false } = {}) {
 
 const IMAGE_RE = /\.(jpe?g|png|webp|heic|heif|gif|bmp|avif)$/i;
 
+/** Takes a photo with the phone's camera app and adds it (used where live camera is unavailable). */
+export async function captureWithCameraApp(docId = null, position) {
+  const files = await pickFiles({ capture: true });
+  if (!files.length) return null;
+  return importImages(files, { docId, position });
+}
+
 /** Adds image files as pages. Creates a document when `docId` is null. */
 export async function importImages(files, { docId = null, position } = {}) {
   const imgs = files.filter((f) => (f.type || '').startsWith('image/') || IMAGE_RE.test(f.name));
@@ -142,11 +149,11 @@ export function openExportSheet(doc, pages, { format = 'pdf' } = {}) {
             return;
           }
         } else if (files.length === 1) {
-          downloadBlob(files[0], files[0].name);
+          if (!(await downloadBlob(files[0], files[0].name))) return;
           toast(`저장됨 · ${formatBytes(files[0].size)}`);
         } else {
           const zip = await zipBlob(files);
-          downloadBlob(zip, safeFilename(name, 'zip'));
+          if (!(await downloadBlob(zip, safeFilename(name, 'zip')))) return;
           toast(`${files.length}장을 ZIP으로 저장 · ${formatBytes(zip.size)}`);
         }
         close(true);
@@ -204,7 +211,7 @@ export function openTextSheet(title, text) {
       text ? area : h('p', { class: 'dialog-msg' }, '인식된 글자가 없습니다.'),
       h('div', { class: 'sheet-actions' },
         h('button', { type: 'button', class: 'btn', onclick: () => {
-          downloadBlob(new Blob([text], { type: 'text/plain;charset=utf-8' }), safeFilename(title, 'txt'));
+          downloadBlob(new Blob([text], { type: 'text/plain;charset=utf-8' }), safeFilename(title, 'txt')).catch((e) => toast(e.message, { error: true }));
         } }, icon('download'), 'TXT 저장'),
         h('button', { type: 'button', class: 'btn primary', onclick: async () => {
           try {

@@ -4,7 +4,7 @@ import { buildPdf } from './core/pdf.js';
 import { buildZip } from './core/zip.js';
 import { recompress, blobToBytes } from './imageio.js';
 import { whenIdle } from './pages.js';
-import { safeFilename } from './util.js';
+import { safeFilename, EMBEDDED } from './util.js';
 
 export const QUALITY = {
   original: { label: '원본', dim: 0, q: 0 },
@@ -50,7 +50,20 @@ export async function zipBlob(files) {
   return new Blob([buildZip(entries)], { type: 'application/zip' });
 }
 
-export function downloadBlob(blob, filename) {
+/** Saves a file. Resolves true when saved, false when the viewer declined. */
+export async function downloadBlob(blob, filename) {
+  if (EMBEDDED) {
+    // Inside claude.ai the page cannot start downloads itself; the host asks the viewer.
+    const downloads = window.claude?.use ? await window.claude.use('downloads') : null;
+    if (!downloads) throw new Error('이 화면에서는 파일 저장을 사용할 수 없습니다');
+    try {
+      await downloads.save({ filename, data: blob });
+      return true;
+    } catch (e) {
+      if (e?.code === 'declined') return false;
+      throw new Error(e?.message || '파일을 저장하지 못했습니다');
+    }
+  }
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -63,6 +76,7 @@ export function downloadBlob(blob, filename) {
     URL.revokeObjectURL(url);
     a.remove();
   }, 60000);
+  return true;
 }
 
 export function canShareFiles(files) {

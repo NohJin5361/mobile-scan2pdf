@@ -4,6 +4,7 @@ import { requestPersistence } from './store.js';
 import { checkServer } from './api.js';
 import { startAutoSync, syncAllPending } from './sync.js';
 import { warmUp } from './processor.js';
+import { EMBEDDED } from './util.js';
 
 import homeView from './views/home.js';
 import cameraView from './views/camera.js';
@@ -27,8 +28,11 @@ const root = document.getElementById('app');
 let current = null;
 let renderSeq = 0;
 
+// Embedded pages cannot rely on the URL, so routes live in memory there.
+const memStack = ['/'];
+
 function parseHash() {
-  const raw = location.hash.replace(/^#/, '') || '/';
+  const raw = EMBEDDED ? memStack[memStack.length - 1] : location.hash.replace(/^#/, '') || '/';
   const [path, qs = ''] = raw.split('?');
   return { path, query: new URLSearchParams(qs) };
 }
@@ -37,6 +41,12 @@ const depth = () => (history.state && history.state.depth) || 0;
 
 /** Navigates to a route. `replace` swaps the current history entry. */
 export function navigate(path, { replace = false } = {}) {
+  if (EMBEDDED) {
+    if (replace) memStack[memStack.length - 1] = path;
+    else memStack.push(path);
+    render();
+    return;
+  }
   const url = `#${path}`;
   if (replace) history.replaceState({ depth: depth() }, '', url);
   else history.pushState({ depth: depth() + 1 }, '', url);
@@ -45,6 +55,13 @@ export function navigate(path, { replace = false } = {}) {
 
 /** Goes back if there is in-app history, otherwise to `fallback`. */
 export function goBack(fallback = '/') {
+  if (EMBEDDED) {
+    if (memStack.length > 1) {
+      memStack.pop();
+      render();
+    } else navigate(fallback, { replace: true });
+    return;
+  }
   if (depth() > 0) history.back();
   else navigate(fallback, { replace: true });
 }
@@ -100,18 +117,20 @@ function registerServiceWorker() {
 }
 
 function boot() {
-  if (!history.state) history.replaceState({ depth: 0 }, '', location.href);
+  if (!EMBEDDED && !history.state) history.replaceState({ depth: 0 }, '', location.href);
   if (!window.indexedDB) {
     root.replaceChildren(h('div', { class: 'empty' }, h('h3', {}, '이 브라우저는 저장 기능(IndexedDB)을 지원하지 않습니다.'), '최신 Chrome, Safari, Samsung Internet, Firefox를 사용해 주세요.'));
     return;
   }
   warmUp();
   requestPersistence();
-  registerServiceWorker();
-  startAutoSync();
-  checkServer().then((st) => {
-    if (st.reachable && st.authOk) syncAllPending();
-  });
+  if (!EMBEDDED) {
+    registerServiceWorker();
+    startAutoSync();
+    checkServer().then((st) => {
+      if (st.reachable && st.authOk) syncAllPending();
+    });
+  }
   render();
 }
 

@@ -4,9 +4,9 @@ import * as store from '../store.js';
 import { api, cloudReady, checkServer, ocrReady } from '../api.js';
 import { syncDoc, onSyncProgress, syncProgress } from '../sync.js';
 import { pendingRenders } from '../pages.js';
-import { pickFiles, importImages, syncBadge, openExportSheet, extractText } from './common.js';
+import { pickFiles, importImages, syncBadge, openExportSheet, extractText, captureWithCameraApp } from './common.js';
 import { pdfBlob } from '../exporter.js';
-import { debounce } from '../util.js';
+import { debounce, EMBEDDED } from '../util.js';
 
 const LONG_PRESS_MS = 320;
 
@@ -34,7 +34,7 @@ export default async function docView({ params: [docId], navigate, goBack }) {
       grid,
       h('p', { class: 'hint' }, '페이지를 길게 눌러 끌면 순서를 바꿀 수 있습니다')),
     h('div', { class: 'bottombar' },
-      iconButton('camera', '촬영 추가', () => navigate(`/camera?doc=${docId}`), { text: '촬영' }),
+      iconButton('camera', '촬영 추가', addFromCamera, { text: '촬영' }),
       iconButton('image', '사진 추가', addFromGallery, { text: '가져오기' }),
       iconButton('file', 'PDF 저장', () => openExportSheet(doc, pages, { format: 'pdf' }), { text: 'PDF' }),
       iconButton('download', 'JPG 저장', () => openExportSheet(doc, pages, { format: 'jpg' }), { text: 'JPG' }),
@@ -68,7 +68,7 @@ export default async function docView({ params: [docId], navigate, goBack }) {
       return;
     }
     const pending = pendingRenders();
-    cards.push(h('button', { type: 'button', class: 'page-card add', onclick: () => navigate(`/camera?doc=${docId}`) },
+    cards.push(h('button', { type: 'button', class: 'page-card add', onclick: addFromCamera },
       pending ? h('div', { class: 'spinner small dark' }) : icon('plus', 32), pending ? '처리 중…' : '페이지 추가'));
     grid.replaceChildren(...cards);
     revokeAll(urls);
@@ -111,6 +111,15 @@ export default async function docView({ params: [docId], navigate, goBack }) {
     }
   }
 
+  async function addFromCamera() {
+    if (!EMBEDDED) {
+      navigate(`/camera?doc=${docId}`);
+      return;
+    }
+    const res = await captureWithCameraApp(docId);
+    if (res) navigate(`/doc/${docId}/crop/${res.added[0].id}`);
+  }
+
   async function addFromGallery() {
     const files = await pickFiles({ multiple: true });
     if (!files.length) return;
@@ -121,9 +130,9 @@ export default async function docView({ params: [docId], navigate, goBack }) {
   async function more() {
     const choice = await actionSheet(doc.title, [
       { label: '이름 변경', icon: 'edit', value: 'rename' },
-      { label: 'PDF 미리보기', icon: 'file', value: 'preview' },
+      EMBEDDED ? null : { label: 'PDF 미리보기', icon: 'file', value: 'preview' },
       ocrReady() ? { label: '텍스트 추출 (OCR)', icon: 'search', value: 'ocr' } : null,
-      { label: '지금 클라우드에 저장', icon: 'cloudUp', value: 'sync' },
+      EMBEDDED ? null : { label: '지금 클라우드에 저장', icon: 'cloudUp', value: 'sync' },
       { label: '문서 삭제', icon: 'trash', value: 'delete', danger: true },
     ]);
     if (choice === 'rename') rename();
@@ -256,6 +265,7 @@ export default async function docView({ params: [docId], navigate, goBack }) {
   const offStore = store.onStoreChange(({ docId: id }) => { if (!id || id === docId) refresh(); });
   const offSync = onSyncProgress(({ docId: id }) => { if (id === docId) renderSync(); });
 
+  if (EMBEDDED) syncBtn.hidden = true;
   await render();
 
   return {
