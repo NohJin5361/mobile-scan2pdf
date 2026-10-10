@@ -11,3 +11,4 @@ data/
 certs/
 test-results/
 .DS_Store
+dist/
