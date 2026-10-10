@@ -1,6 +1,6 @@
 // App bootstrap and hash router.
-import { h, toast } from './ui.js';
-import { requestPersistence } from './store.js';
+import { toast } from './ui.js';
+import { requestPersistence, initStorage } from './store.js';
 import { checkServer } from './api.js';
 import { startAutoSync, syncAllPending } from './sync.js';
 import { warmUp } from './processor.js';
@@ -116,11 +116,23 @@ function registerServiceWorker() {
   navigator.serviceWorker.register('sw.js').catch((e) => console.warn('service worker', e));
 }
 
-function boot() {
+// Surface unexpected failures on screen so problems on a phone can be reported.
+function showErrors() {
+  let last = '';
+  const report = (msg) => {
+    if (!msg || msg === last) return;
+    last = msg;
+    toast(`오류: ${msg}`, { error: true, duration: 7000 });
+  };
+  window.addEventListener('error', (e) => report(e.message));
+  window.addEventListener('unhandledrejection', (e) => report(e.reason?.message || String(e.reason || '')));
+}
+
+async function boot() {
   if (!EMBEDDED && !history.state) history.replaceState({ depth: 0 }, '', location.href);
-  if (!window.indexedDB) {
-    root.replaceChildren(h('div', { class: 'empty' }, h('h3', {}, '이 브라우저는 저장 기능(IndexedDB)을 지원하지 않습니다.'), '최신 Chrome, Safari, Samsung Internet, Firefox를 사용해 주세요.'));
-    return;
+  showErrors();
+  if (await initStorage()) {
+    setTimeout(() => toast('이 화면에서는 기기 저장소를 쓸 수 없어 문서가 임시로만 보관됩니다. 창을 닫기 전에 PDF/JPG로 저장하세요.', { duration: 7000 }), 600);
   }
   warmUp();
   requestPersistence();

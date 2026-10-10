@@ -4,6 +4,7 @@ import { getSettings, updateSettings, apiBaseUrl, DEFAULTS } from '../settings.j
 import { checkServer } from '../api.js';
 import { syncAllPending } from '../sync.js';
 import * as store from '../store.js';
+import { processorMode } from '../processor.js';
 import { FILTERS } from '../core/enhance.js';
 import { field } from './common.js';
 import { formatBytes, EMBEDDED } from '../util.js';
@@ -17,6 +18,18 @@ export default async function settingsView({ goBack }) {
     tokenInput.type = tokenInput.type === 'password' ? 'text' : 'password';
   } }, '보기');
   const usage = h('span', {}, '계산 중…');
+  const diag = h('div', { style: { fontSize: '14px', paddingBottom: '12px', lineHeight: '1.7' } }, '확인 중…');
+  (async () => {
+    const downloads = window.claude?.use ? await window.claude.use('downloads').catch(() => null) : null;
+    const rows = [
+      ['저장소', store.isTemporaryStorage() ? '임시 메모리 (창을 닫으면 사라짐)' : '기기 저장소 (IndexedDB)'],
+      ['이미지 처리', (await processorMode()) === 'worker' ? '백그라운드 작업자' : '메인 스레드'],
+      ['카메라 앱 촬영', 'capture' in document.createElement('input') ? '지원' : '사진 선택으로 대체'],
+      ['파일 저장', EMBEDDED ? (downloads ? 'Claude 저장 확인창' : '사용할 수 없음') : '브라우저 다운로드'],
+      ['화면', `${window.innerWidth}×${window.innerHeight} · ${navigator.userAgent.match(/(iPhone|iPad|Android)[^;)]*/)?.[0] || 'PC'}`],
+    ];
+    diag.replaceChildren(...rows.map(([k, v]) => h('div', {}, h('b', {}, `${k}: `), v)));
+  })();
 
   async function test() {
     updateSettings({ apiBase: apiInput.value.trim(), apiToken: tokenInput.value.trim() });
@@ -79,8 +92,11 @@ export default async function settingsView({ goBack }) {
             goBack('/');
           } }, '스캔 설정 초기화'))),
       h('section', { class: 'settings-group' },
+        h('h2', {}, '기기 진단'),
+        diag),
+      h('section', { class: 'settings-group' },
         h('h2', {}, '정보'),
-        h('p', { class: 'status-line' }, 'Scan2PDF 1.0 · 문서 스캐너'),
+        h('p', { class: 'status-line' }, `Scan2PDF 1.1${EMBEDDED ? ' · 체험판' : ''} · 문서 스캐너`),
         h('p', { class: 'status-line' }, h('a', { href: new URL('docs', apiBaseUrl()).href, target: '_blank', rel: 'noopener' }, 'API 문서 열기')))));
 
   async function showUsage() {

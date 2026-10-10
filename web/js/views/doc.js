@@ -4,7 +4,7 @@ import * as store from '../store.js';
 import { api, cloudReady, checkServer, ocrReady } from '../api.js';
 import { syncDoc, onSyncProgress, syncProgress } from '../sync.js';
 import { pendingRenders } from '../pages.js';
-import { pickFiles, importImages, syncBadge, openExportSheet, extractText, captureWithCameraApp } from './common.js';
+import { importImages, syncBadge, openExportSheet, extractText, fileButton } from './common.js';
 import { pdfBlob } from '../exporter.js';
 import { debounce, EMBEDDED } from '../util.js';
 
@@ -34,8 +34,10 @@ export default async function docView({ params: [docId], navigate, goBack }) {
       grid,
       h('p', { class: 'hint' }, '페이지를 길게 눌러 끌면 순서를 바꿀 수 있습니다')),
     h('div', { class: 'bottombar' },
-      iconButton('camera', '촬영 추가', addFromCamera, { text: '촬영' }),
-      iconButton('image', '사진 추가', addFromGallery, { text: '가져오기' }),
+      EMBEDDED
+        ? fileButton({ label: '촬영', iconName: 'camera', variant: 'icon', capture: true, onFiles: addPhotos })
+        : iconButton('camera', '촬영 추가', () => navigate(`/camera?doc=${docId}`), { text: '촬영' }),
+      fileButton({ label: '가져오기', iconName: 'image', variant: 'icon', multiple: true, onFiles: addPhotos }),
       iconButton('file', 'PDF 저장', () => openExportSheet(doc, pages, { format: 'pdf' }), { text: 'PDF' }),
       iconButton('download', 'JPG 저장', () => openExportSheet(doc, pages, { format: 'jpg' }), { text: 'JPG' }),
       iconButton('share', '공유', () => openExportSheet(doc, pages, { format: 'pdf' }), { text: '공유' })));
@@ -68,8 +70,11 @@ export default async function docView({ params: [docId], navigate, goBack }) {
       return;
     }
     const pending = pendingRenders();
-    cards.push(h('button', { type: 'button', class: 'page-card add', onclick: addFromCamera },
-      pending ? h('div', { class: 'spinner small dark' }) : icon('plus', 32), pending ? '처리 중…' : '페이지 추가'));
+    const addLabel = pending ? '처리 중…' : '페이지 추가';
+    cards.push(EMBEDDED
+      ? fileButton({ label: addLabel, iconName: 'plus', className: 'page-card add', capture: true, onFiles: addPhotos })
+      : h('button', { type: 'button', class: 'page-card add', onclick: () => navigate(`/camera?doc=${docId}`) },
+        pending ? h('div', { class: 'spinner small dark' }) : icon('plus', 32), addLabel));
     grid.replaceChildren(...cards);
     revokeAll(urls);
     urls.push(...newUrls);
@@ -111,18 +116,7 @@ export default async function docView({ params: [docId], navigate, goBack }) {
     }
   }
 
-  async function addFromCamera() {
-    if (!EMBEDDED) {
-      navigate(`/camera?doc=${docId}`);
-      return;
-    }
-    const res = await captureWithCameraApp(docId);
-    if (res) navigate(`/doc/${docId}/crop/${res.added[0].id}`);
-  }
-
-  async function addFromGallery() {
-    const files = await pickFiles({ multiple: true });
-    if (!files.length) return;
+  async function addPhotos(files) {
     const res = await importImages(files, { docId });
     if (res && res.added.length === 1) navigate(`/doc/${docId}/crop/${res.added[0].id}`);
   }

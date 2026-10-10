@@ -3,7 +3,7 @@ import { h, icon, iconButton, toast, actionSheet, confirmDialog, promptDialog, r
 import * as store from '../store.js';
 import { api, checkServer, serverStatus, onServerStatus, cloudReady } from '../api.js';
 import { onSyncProgress, syncDoc } from '../sync.js';
-import { pickFiles, importImages, syncBadge, openExportSheet, captureWithCameraApp } from './common.js';
+import { importImages, syncBadge, openExportSheet, fileButton } from './common.js';
 import { formatDate, formatBytes, debounce, EMBEDDED } from '../util.js';
 
 let lastTab = 'local';
@@ -168,21 +168,15 @@ export default async function homeView({ navigate }) {
     }
   }
 
-  async function importFromGallery() {
-    const files = await pickFiles({ multiple: true });
-    if (!files.length) return;
+  async function importFromGallery(files) {
     const res = await importImages(files);
     if (!res) return;
     if (res.added.length === 1) navigate(`/doc/${res.doc.id}/crop/${res.added[0].id}?next=page`);
     else navigate(`/doc/${res.doc.id}`);
   }
 
-  async function scan() {
-    if (!EMBEDDED) {
-      navigate('/camera?doc=new');
-      return;
-    }
-    const res = await captureWithCameraApp();
+  async function scanWithCameraApp(files) {
+    const res = await importImages(files);
     if (res) navigate(`/doc/${res.doc.id}/crop/${res.added[0].id}?next=page`);
   }
 
@@ -201,8 +195,10 @@ export default async function homeView({ navigate }) {
       cloudNotice,
       list),
     h('div', { class: 'fab-row' },
-      h('button', { type: 'button', class: 'fab secondary', onclick: importFromGallery }, icon('image'), '가져오기'),
-      h('button', { type: 'button', class: 'fab', onclick: scan }, icon('camera'), '스캔')));
+      fileButton({ label: '가져오기', iconName: 'image', className: 'fab secondary', multiple: true, onFiles: importFromGallery }),
+      EMBEDDED
+        ? fileButton({ label: '스캔', iconName: 'camera', className: 'fab', capture: true, onFiles: scanWithCameraApp })
+        : h('button', { type: 'button', class: 'fab', onclick: () => navigate('/camera?doc=new') }, icon('camera'), '스캔')));
 
   await renderList();
   if (tab === 'cloud') loadCloud();

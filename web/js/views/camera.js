@@ -5,7 +5,7 @@ import { run } from '../processor.js';
 import { addPageFromBlob, replaceOriginal } from '../pages.js';
 import { getSettings, updateSettings } from '../settings.js';
 import { canvasToBlob, releaseCanvas } from '../imageio.js';
-import { pickFiles, importImages } from './common.js';
+import { importImages, fileButton } from './common.js';
 import { EMBEDDED } from '../util.js';
 
 const STABLE_FRAMES = 7;      // consecutive steady detections before auto-capture
@@ -87,7 +87,7 @@ export default async function cameraView({ query, navigate, goBack }) {
   const thumbImg = h('img', { alt: '' });
   const countEl = h('span', { class: 'count' }, '0');
   const doneBtn = h('button', { type: 'button', class: 'cam-done', onclick: finish, style: { visibility: 'hidden' } }, thumbImg, countEl, '완료');
-  const galleryBtn = iconButton('image', '사진 가져오기', importGallery, { text: '가져오기' });
+  const galleryBtn = fileButton({ label: '가져오기', iconName: 'image', variant: 'icon', multiple: !retakeId, onFiles: (files) => handleFiles(files) });
 
   const singleBtn = h('button', { type: 'button', onclick: () => setBatch(false) }, '한 장');
   const batchBtn = h('button', { type: 'button', onclick: () => setBatch(true) }, '여러 장');
@@ -145,8 +145,8 @@ export default async function cameraView({ query, navigate, goBack }) {
     stage.append(h('div', { class: 'cam-fallback' },
       icon('camera', 48),
       h('p', {}, message),
-      h('button', { type: 'button', class: 'btn primary', onclick: nativeCamera }, icon('camera'), '카메라 앱으로 촬영'),
-      h('button', { type: 'button', class: 'btn', onclick: importGallery }, icon('image'), '사진 가져오기')));
+      fileButton({ label: '카메라 앱으로 촬영', iconName: 'camera', className: 'btn primary', capture: true, onFiles: handleFiles }),
+      fileButton({ label: '사진 가져오기', iconName: 'image', multiple: !retakeId, onFiles: handleFiles })));
   }
 
   async function start() {
@@ -451,13 +451,6 @@ export default async function cameraView({ query, navigate, goBack }) {
     else navigate(`/doc/${id}`, { replace: true });
   }
 
-  async function importGallery() {
-    handleFiles(await pickFiles({ multiple: !retakeId }));
-  }
-
-  async function nativeCamera() {
-    handleFiles(await pickFiles({ capture: true }));
-  }
 
   async function finish() {
     if (docId === 'new' || !captured) {

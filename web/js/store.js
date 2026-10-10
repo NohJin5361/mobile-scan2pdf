@@ -13,6 +13,52 @@ const DB_VERSION = 1;
 const bus = new Emitter();
 let dbPromise = null;
 
+// When IndexedDB is unavailable (some in-app browsers, private modes) the app keeps
+// working with an in-memory store; documents then last until the page is closed.
+const MEMORY = { memory: true };
+const mem = { docs: new Map(), pages: new Map(), blobs: new Map() };
+let memoryMode = false;
+
+export const isTemporaryStorage = () => memoryMode;
+
+function memRequest(compute) {
+  const r = { result: undefined, error: null, onsuccess: null, onerror: null };
+  queueMicrotask(() => {
+    try {
+      r.result = compute();
+      r.onsuccess?.();
+    } catch (e) {
+      r.error = e;
+      r.onerror?.();
+    }
+  });
+  return r;
+}
+
+function memObjectStore(name) {
+  const m = mem[name];
+  // Records are plain data except blobs; copy them like IndexedDB would.
+  const copy = (v) => (v == null || v instanceof Blob ? v : JSON.parse(JSON.stringify(v)));
+  return {
+    get: (k) => memRequest(() => copy(m.get(k))),
+    put: (v, k) => memRequest(() => {
+      const key = name === 'blobs' ? k : v.id;
+      m.set(key, copy(v));
+      return key;
+    }),
+    delete: (k) => memRequest(() => { m.delete(k); }),
+    getAll: () => memRequest(() => [...m.values()].map(copy)),
+    clear: () => memRequest(() => m.clear()),
+    index: () => ({ getAll: (id) => memRequest(() => [...m.values()].filter((v) => v.docId === id).map(copy)) }),
+  };
+}
+
+function useMemory(reason) {
+  if (!memoryMode) console.warn('IndexedDB unavailable, using memory storage:', reason);
+  memoryMode = true;
+  return MEMORY;
+}
+
 function req(r) {
   return new Promise((resolve, reject) => {
     r.onsuccess = () => resolve(r.result);
@@ -22,8 +68,25 @@ function req(r) {
 
 function open() {
   if (dbPromise) return dbPromise;
-  dbPromise = new Promise((resolve, reject) => {
-    const r = indexedDB.open(DB_NAME, DB_VERSION);
+  dbPromise = openIndexedDb().catch((e) => useMemory(e && e.message));
+  return dbPromise;
+}
+
+function openIndexedDb() {
+  return new Promise((resolve, reject) => {
+    if (!window.indexedDB) {
+      reject(new Error('no indexedDB'));
+      return;
+    }
+    const timer = setTimeout(() => reject(new Error('indexedDB open timed out')), 4000);
+    let r;
+    try {
+      r = indexedDB.open(DB_NAME, DB_VERSION);
+    } catch (e) {
+      clearTimeout(timer);
+      reject(e);
+      return;
+    }
     r.onupgradeneeded = () => {
       const db = r.result;
       if (!db.objectStoreNames.contains('docs')) db.createObjectStore('docs', { keyPath: 'id' });
@@ -34,18 +97,31 @@ function open() {
       if (!db.objectStoreNames.contains('blobs')) db.createObjectStore('blobs');
     };
     r.onsuccess = () => {
+      clearTimeout(timer);
       const db = r.result;
       db.onversionchange = () => db.close();
       resolve(db);
     };
-    r.onerror = () => reject(r.error);
-    r.onblocked = () => reject(new Error('IndexedDB blocked by another tab'));
+    r.onerror = () => {
+      clearTimeout(timer);
+      reject(r.error);
+    };
+    r.onblocked = () => {
+      clearTimeout(timer);
+      reject(new Error('IndexedDB blocked by another tab'));
+    };
   });
-  return dbPromise;
+}
+
+/** Opens storage early; resolves true when documents are kept only in memory. */
+export async function initStorage() {
+  await open();
+  return memoryMode;
 }
 
 async function tx(stores, mode, fn) {
   const db = await open();
+  if (db === MEMORY) return fn({ objectStore: memObjectStore, abort() {} });
   return new Promise((resolve, reject) => {
     const t = db.transaction(stores, mode);
     let result;

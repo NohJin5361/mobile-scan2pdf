@@ -70,3 +70,8 @@ export async function run(op, args = {}, transfer = []) {
 export function warmUp() {
   startWorker();
 }
+
+/** 'worker' or 'main thread' once known. */
+export async function processorMode() {
+  return (await startWorker()) ? 'worker' : 'main thread';
+}

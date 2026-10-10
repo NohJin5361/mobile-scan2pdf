@@ -379,7 +379,7 @@ test('two devices editing the same document never lose pages', async () => {
   await b.page.waitForSelector('.page-grid .page-card');
   await b.page.click('.bottombar >> text=편집');
   await b.page.waitForSelector('.page-grid .page-card[data-id]');
-  const [chooser] = await Promise.all([b.page.waitForEvent('filechooser'), b.page.click('.bottombar >> text=가져오기')]);
+  const [chooser] = await Promise.all([b.page.waitForEvent('filechooser'), b.page.click('.bottombar label.file-btn:has-text("가져오기")')]);
   await chooser.setFiles([photos[1].file]);
   await waitFor(async () => (await getJson(`${base}/api/documents/${docId}`)).page_count === 2, 60000);
 

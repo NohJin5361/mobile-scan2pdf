@@ -9,31 +9,25 @@ import { PAGE_SIZES } from '../core/pdf.js';
 import { QUALITY, pdfBlob, jpgFiles, zipBlob, downloadBlob, canShareFiles, shareFiles } from '../exporter.js';
 import { formatBytes, safeFilename } from '../util.js';
 
-/** Opens the system file picker. `capture` opens the camera app directly on phones. */
-export function pickFiles({ multiple = true, capture = false } = {}) {
-  return new Promise((resolve) => {
-    const input = h('input', { type: 'file', accept: 'image/*', multiple: multiple && !capture, class: 'sr-only' });
-    if (capture) input.setAttribute('capture', 'environment');
-    input.addEventListener('change', () => {
-      resolve([...(input.files || [])]);
-      input.remove();
-    });
-    input.addEventListener('cancel', () => {
-      resolve([]);
-      input.remove();
-    });
-    document.body.append(input);
-    input.click();
-  });
-}
-
 const IMAGE_RE = /\.(jpe?g|png|webp|heic|heif|gif|bmp|avif)$/i;
 
-/** Takes a photo with the phone's camera app and adds it (used where live camera is unavailable). */
-export async function captureWithCameraApp(docId = null, position) {
-  const files = await pickFiles({ capture: true });
-  if (!files.length) return null;
-  return importImages(files, { docId, position });
+/**
+ * A button that *is* a file input (the input covers the button). Tapping it opens
+ * the picker natively, which also works in in-app browsers that ignore scripted
+ * clicks on hidden inputs. `capture` opens the camera app on phones.
+ */
+export function fileButton({ label, iconName, className = 'btn', variant = 'button', capture = false, multiple = false, onFiles }) {
+  const input = h('input', { type: 'file', accept: 'image/*', class: 'file-input', multiple: multiple && !capture, 'aria-label': label });
+  if (capture) input.setAttribute('capture', 'environment');
+  input.addEventListener('change', () => {
+    const files = [...(input.files || [])];
+    input.value = ''; // allow picking the same photo again
+    if (files.length) Promise.resolve(onFiles(files)).catch((e) => toast(e.message || String(e), { error: true }));
+  });
+  if (variant === 'icon') {
+    return h('label', { class: `icon-btn file-btn ${className === 'btn' ? '' : className}`, title: label }, input, icon(iconName), h('span', { class: 'icon-btn-label' }, label));
+  }
+  return h('label', { class: `${className} file-btn` }, input, iconName ? icon(iconName) : null, h('span', {}, label));
 }
 
 /** Adds image files as pages. Creates a document when `docId` is null. */

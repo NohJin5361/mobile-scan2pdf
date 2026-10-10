@@ -1,5 +1,5 @@
 // Per-device preferences (localStorage, guarded: storage may be unavailable).
-import { Emitter } from './util.js';
+import { Emitter, EMBEDDED } from './util.js';
 
 const KEY = 'scan2pdf.settings.v1';
 
@@ -27,6 +27,11 @@ export const DEFAULTS = {
 
 const bus = new Emitter();
 let current = load();
+if (EMBEDDED) {
+  // In-app browsers get less memory: keep scans sharp (~200 dpi A4) but lighter.
+  current.sourceMaxDim = Math.min(current.sourceMaxDim, 3000);
+  current.outputMaxDim = Math.min(current.outputMaxDim, 2480);
+}
 
 function load() {
   try {
